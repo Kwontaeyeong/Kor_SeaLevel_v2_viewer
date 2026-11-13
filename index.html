@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관측 조위 기록으로 본 현행 설계기준 점검</title>
+<!-- 모든 라이브러리는 vendor/ 에 동봉: 인터넷 없이 열린다 (decisions D6-1) -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="title-row">
+    <h1>관측 조위 기록으로 본 현행 설계기준 점검</h1>
+    <span class="badge warn">논문 투고 전 자료 — 외부 공개 금지</span>
+    <span class="badge note">판정: KHOA 고조정보 4단계 (16곳은 임시 규칙 — 참고)</span>
+  </div>
+  <div class="meta" id="meta"></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="check" role="tab" aria-selected="true">설계기준 점검</button>
+    <button class="tab" data-tab="ssp" role="tab" aria-selected="false">SSP 시나리오</button>
+  </nav>
+</header>
+
+<main id="tab-check" class="layout">
+  <section class="left">
+    <div class="card map-card">
+      <div id="map" aria-label="관측소 지도"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card table-card">
+      <div class="table-wrap">
+        <table id="st-table">
+          <thead><tr></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint" id="table-hint"></p>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card detail" id="detail"></div>
+    <div class="right-bottom">
+      <div class="card typhoons">
+        <div class="ty-head">
+          <h3>이 관측소를 지나간 태풍</h3>
+          <div class="seg" id="ty-filter"><button data-f="reach" class="on">관심 이상만</button><button data-f="all">전체</button></div>
+        </div>
+        <div id="ty-list" class="ty-wrap"></div>
+        <p class="hint">최신 태풍이 위. 태풍을 누르면 그래프가 그 기간으로 확대됩니다. ※ = 기준면이 바뀌었을 수 있는 기간.</p>
+      </div>
+      <div class="card chart-card">
+        <h3 id="chart-title">시간별 조위</h3>
+        <div class="range-bar">
+          <label>기간 <input type="date" id="range-start" aria-label="시작 날짜"></label>
+          <span>~</span>
+          <input type="date" id="range-end" aria-label="끝 날짜">
+          <button class="link" id="range-apply">보기</button>
+          <button class="link" id="range-10y">최근 10년</button>
+          <button class="link" id="range-all">전체</button>
+          <button class="link csv" id="csv-download" title="지금 그래프에 보이는 기간의 시간별 조위를 CSV 파일로 저장">이 기간 CSV 내려받기</button>
+        </div>
+        <div id="ty-info" class="ty-info"></div>
+        <div class="chart-mode">지금 표시: <span id="chart-mode"></span></div>
+        <div id="chart"></div>
+        <p class="hint">평상시를 포함한 전체 관측 기록입니다. 옅은 보라색 띠 = 태풍 사건 구간(태풍 영역 통과 앞뒤 24시간), 점선 = 단계 높이,
+          점 = 태풍별 최고 조위 (속이 빈 점 = 기준면 불확실 기간, 누르면 자세히). 넓은 기간은 하루 최고(진한 선)·최저(옅은 선)로,
+          120일 이하로 좁히면 시간별 값으로 보입니다. 비어 있는 곳은 결측이거나 플래그로 쓰지 않는 값입니다.
+          CSV에는 보이는 기간의 시간별 조위가 모두 들어갑니다.</p>
+        <div id="th-note" class="th-note"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<main id="tab-ssp" class="layout single" hidden>
+  <div class="card placeholder big">SSP 시나리오 탭은 준비 중입니다 (목표 순서상 재현수위 다음 작업, decisions D0-6).</div>
+</main>
+
+<footer class="method" id="method"></footer>
+
+<div id="popup" class="popup" hidden>
+  <div class="pop-box" role="dialog" aria-modal="true" aria-labelledby="pop-title">
+    <div class="pop-head"><div id="pop-title"></div><button id="pop-close" class="pop-close" aria-label="닫기">닫기 ✕</button></div>
+    <div id="pop-note"></div>
+    <div id="pop-chart"></div>
+    <p class="hint">태풍 영역 통과 기간 앞뒤 24시간의 시간별 조위. 쓰지 않는 값(플래그)은 비워 둠. 바깥을 누르거나 Esc 로 닫힘.</p>
+  </div>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/echarts/echarts.min.js"></script>
+<script src="data/land_korea.js"></script>
+<script src="data/viewer_data.js"></script>
+<script src="data/places_korea.js"></script>
+<script src="data/tracks.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
