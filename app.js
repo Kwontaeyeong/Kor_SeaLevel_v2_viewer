@@ -10,7 +10,7 @@
   const LEVELS = ["관심", "주의", "경계", "위험"];
   // 단계 색 (평시는 회색). 텍스트에는 쓰지 않고 표식에만 쓴다
   const LV_COLOR = { 평시: "#9aa5b1", 관심: "#e9b949", 주의: "#e8833a", 경계: "#d64545", 위험: "#7a1414" };
-  const SELECT = "#2a78d6";
+  const SELECT = "#0f62fe";
   const COAST_KO = { West: "서해", South: "남해", East: "동해" };
 
   function topLevel(s) {
@@ -25,7 +25,25 @@
   document.getElementById("method").innerHTML =
     `<b>만든 방법</b> — 판정: ${D.meta.criteria_note}. ${D.meta.event_note}. ${D.meta.rate_note}. ` +
     `16곳의 기준값: ${D.meta.design_level}. 기준면 불확실 구간(자료 README·PSMSL 대조)에 든 사건은 ※ 로 표시. ` +
-    `배경 지도: Natural Earth 10m (공개 저작물). 자료 출처: 국립해양조사원(KHOA) 조위 관측 자료·고조정보, IBTrACS.`;
+    `<br><b>자료 출처</b> — ` +
+    // 문구는 자료 README 6절(LICENCE AND SOURCE DATA)을 따른다
+    `조위·천문조·해일 성분과 태풍 사건: Kor_SeaLevel v1.0 (2026-10-20, CC BY 4.0; 인용 정보는 논문 게재 후 추가). ` +
+    `원 관측 자료: 국립해양조사원(KHOA) 바다누리 해양정보 서비스 시간별 조위, 공공누리 제1유형(출처표시). ` +
+    `태풍 경로: IBTrACS v04r01 서태평양, NOAA NCEI (Knapp et al., 2010). ` +
+    `관심·주의·경계·위험 높이와 시설물 높이: 국립해양조사원 실시간 고조정보. ` +
+    `배경 지도·지명: Natural Earth 1:10m (공개 저작물).`;
+
+  // 첫 화면 요약 (decisions D5-2) — 숫자는 화면 자료(scripts/viewer_build_data.py)에서 채움. 관측소 이름을 누르면 선택
+  const SM = D.summary;
+  // 한눈에: ① 주의·경계에 닿은 관측소 수 → ② 자주 넘는 곳
+  document.getElementById("headline").innerHTML =
+    `<span class="hl-num"><i class="dot" style="background:${LV_COLOR["주의"]}"></i>주의 이상 <b>${SM.n_attention}곳</b><small> / ${SM.n_official}곳</small></span>` +
+    `<span class="hl-num"><i class="dot" style="background:${LV_COLOR["경계"]}"></i>경계 이상 <b>${SM.n_caution}곳</b><small> / ${SM.n_official}곳</small></span>` +
+    `<span class="hl-sep"></span>` +
+    `<span class="hl-where">자주 넘는 곳 <small>(2년에 한 번꼴 이상 주의)</small> ` +
+    SM.frequent.map((n) => `<span class="stn chip" data-name="${n}">${n}</span>`).join("") + `</span>` +
+    `<small class="hl-basis">KHOA 침수 위험 기준이 있는 관측소, 1956–2025 태풍 사건 기준 · 관측소마다 관측 기간이 다름 (각자 관측한 기간의 태풍만 셈)</small>`;
+  document.querySelectorAll("#headline .stn").forEach((el) => el.addEventListener("click", () => select(el.dataset.name)));
 
   /* ---------- 탭 ---------- */
   document.querySelectorAll(".tab").forEach((b) =>
@@ -252,7 +270,8 @@
 
   /* ---------- 시계열 그래프 (태풍 사건 구간만, 구간 사이는 끊음) ---------- */
   const chart = echarts.init(document.getElementById("chart"), null, { renderer: "canvas" });
-  window.addEventListener("resize", () => { chart.resize(); map.invalidateSize(); popChart && popChart.resize(); });
+  window.addEventListener("resize", () => { chart.resize(); map.invalidateSize(); popChart && popChart.resize();
+    if (curS) spreadThLabels(chart, curS); });
   const HOUR = 3600e3;
   const toMs = (str) => Date.parse(str.replace(" ", "T") + ":00+09:00");
   const kst = (ms) => { const d = new Date(ms + 9 * HOUR); return d.toISOString().slice(0, 16).replace("T", " "); };
@@ -264,7 +283,7 @@
   const DETAIL_DAYS = 120;
   const NULL16 = D.meta.hourly_null, SCALE = D.meta.hourly_scale;
   const hourlyCache = new Map();
-  let curH = null, curExt = [0, 0];
+  let curH = null, curS = null, curExt = [0, 0];
 
   async function loadHourly(s) {
     if (hourlyCache.has(s.name)) return hourlyCache.get(s.name);
@@ -300,19 +319,42 @@
     }
     return { mode: "하루 최고 조위 (기간이 넓어 하루 단위로 줄여 표시, 120일 이하로 좁히면 시간별)", line, low };
   }
-  function thLines(s) {
+  function thLines(s, offs) {
     return Object.entries(s.th).filter(([, v]) => v != null).map(([k, v]) => ({
       yAxis: v, name: k, lineStyle: { color: LV_COLOR[k], type: "dashed", width: 1.5 },
-      // 이름표는 그래프 오른쪽 바깥 (안쪽에 두면 높이가 가까운 단계끼리 글자가 겹침)
-      label: { formatter: `${k} ${v.toFixed(0)}`, color: "#52514e", position: "end", fontSize: 11, distance: 4 },
+      // 이름표는 그래프 오른쪽 바깥. 높이가 가까운 단계(관심·주의 20 cm 차)는 spreadThLabels 가 위아래로 벌림
+      label: { formatter: `${k} ${v.toFixed(0)}`, color: "#52514e", position: "end", fontSize: 11, distance: 4,
+               offset: [0, (offs && offs[k]) || 0] },
     }));
+  }
+  // 단계 이름표가 화면에서 15 px 보다 가까우면 아래쪽 것을 내려 겹치지 않게 함 (y축 눈금이 바뀔 때마다 다시 계산)
+  const LABEL_GAP = 15;
+  function spreadThLabels(c, s) {
+    const items = Object.entries(s.th).filter(([, v]) => v != null)
+      .map(([k, v]) => ({ k, y: c.convertToPixel({ yAxisIndex: 0 }, v) }))
+      .filter((d) => Number.isFinite(d.y)).sort((a, b) => a.y - b.y);   // 화면 위쪽(높은 값)부터
+    const offs = {};
+    let prev = -Infinity;
+    for (const d of items) {
+      const pos = Math.max(d.y, prev + LABEL_GAP);
+      offs[d.k] = pos - d.y;
+      prev = pos;
+    }
+    c.setOption({ series: [{ id: "level", markLine: { data: thLines(s, offs) } }] });
+  }
+  // 범례: 넓은 기간은 일 최고(진한 선)·일 최저(옅은 선) 두 줄, 120일 이하는 시간별 한 줄
+  function lineNames(w) {
+    return w.low.length ? ["일 최고", "일 최저"] : ["시간별 조위", "일 최저"];
   }
   function refreshLine() {
     if (!curH) return;
     const [lo, hi] = currentWindow();
     const w = windowData(curH, lo, hi);
-    chart.setOption({ series: [{ id: "level", data: w.line }, { id: "low", data: w.low }] });
+    const [n1, n2] = lineNames(w);
+    chart.setOption({ legend: { data: w.low.length ? [n1, n2] : [n1] },
+                      series: [{ id: "level", name: n1, data: w.line }, { id: "low", name: n2, data: w.low }] });
     document.getElementById("chart-mode").textContent = w.mode;
+    if (curS) spreadThLabels(chart, curS);
   }
   let zoomTimer = null;
   function onZoom() {
@@ -329,15 +371,18 @@
     const h = await loadHourly(s);
     if (current !== s.name) return;            // 읽는 사이 다른 관측소를 고른 경우
     chart.hideLoading();
-    curH = h;
+    curH = h; curS = s;
     curExt = [h.t0, h.t0 + (h.raw.length - 1) * HOUR];
     const pts = s.events.map((e, i) => ({ value: [toMs(e.peak), e.esl], i, e,
       itemStyle: e.datum ? { color: "#fff", borderColor: LV_COLOR[e.level], borderWidth: 2 } : { color: LV_COLOR[e.level] } }));
     const areas = s.events.map((e) => [{ xAxis: toMs(e.t0) }, { xAxis: toMs(e.t0) + e.v.length * HOUR }]);
     const w = windowData(h, curExt[0], curExt[1]);
+    const [n1, n2] = lineNames(w);
     chart.setOption({
       animation: false,
-      grid: { left: 64, right: 78, top: 18, bottom: 62 },
+      grid: { left: 64, right: 78, top: 34, bottom: 62 },
+      legend: { data: w.low.length ? [n1, n2] : [n1], top: 0, right: 78, selectedMode: false,
+                itemWidth: 18, itemHeight: 2, icon: "rect", textStyle: { color: "#525252", fontSize: 11 } },
       tooltip: { trigger: "item", formatter: (p) => p.seriesId === "peaks"
         ? `${p.data.e.typhoon} ${p.data.e.year}<br>${p.data.e.peak} KST<br>최고 ${p.data.e.esl.toFixed(0)} cm · ${p.data.e.level}${p.data.e.datum ? "<br>※ 기준면 불확실 기간" : ""}`
         : `${kst(p.value[0])} KST<br>${p.value[1] == null ? "–" : p.value[1].toFixed(0) + " cm"}` },
@@ -347,14 +392,15 @@
       dataZoom: [{ type: "slider", height: 18, bottom: 18, brushSelect: false, filterMode: "none", labelFormatter: (v) => kst(v).slice(0, 10) },
                  { type: "inside", filterMode: "none" }],
       series: [
-        { id: "level", type: "line", data: w.line, showSymbol: false, connectNulls: false,   // sampling 은 빈칸을 무시하고 이어 그려서 쓰지 않음
-          lineStyle: { width: 1, color: "#5b8fd1" }, markLine: { symbol: "none", silent: true, data: thLines(s) },
+        { id: "level", name: n1, type: "line", data: w.line, showSymbol: false, connectNulls: false,   // sampling 은 빈칸을 무시하고 이어 그려서 쓰지 않음
+          lineStyle: { width: 1, color: "#4589ff" }, markLine: { symbol: "none", silent: true, data: thLines(s) },
           // 태풍 사건 구간 (태풍 영역 통과 ±24 h) 을 옅게 칠함
           markArea: { silent: true, itemStyle: { color: "rgba(91,63,163,0.10)" }, data: areas } },
-        { id: "low", type: "line", data: w.low, showSymbol: false, connectNulls: false, lineStyle: { width: 0.8, color: "#b8cbe6" } },
+        { id: "low", name: n2, type: "line", data: w.low, showSymbol: false, connectNulls: false, lineStyle: { width: 0.8, color: "#a6c8ff" } },
         { id: "peaks", type: "scatter", data: pts, symbolSize: 9, z: 5 },
       ],
     }, true);
+    spreadThLabels(chart, s);
     document.getElementById("chart-mode").textContent = w.mode;
     chart.off("click");
     chart.on("click", (p) => { if (p.seriesId === "peaks") openPopup(s, p.data.e); });
@@ -451,21 +497,52 @@
     document.getElementById("pop-title").innerHTML =
       `${s.name} · ${e.typhoon} ${e.year} — 정점 ${e.peak} KST, ${e.esl.toFixed(0)} cm, <i class="dot" style="background:${LV_COLOR[e.level]}"></i>${e.level}`;
     document.getElementById("pop-note").innerHTML =
+      `<p class="hint">위: 관측 조위(파랑)와 예측 조위(회색 점선 = 천문조 + 연평균해면). 아래: 해일(보라) = 관측 − 예측. ` +
+      `두 선의 차이가 태풍·기압 때문에 더 오른 높이입니다. 해일에는 계절 변화도 조금 섞여 있습니다 (자료 README 2절).</p>` +
       (e.datum ? `<div class="caution">※ 이 사건은 기준면이 바뀌었을 수 있는 기간에 있습니다 (${e.datum}).</div>` : "") +
       (!s.official ? `<div class="caution">참고사항: 임시 규칙으로 판정한 관측소입니다.</div>` : "");
     pop.hidden = false;
     if (!popChart) popChart = echarts.init(document.getElementById("pop-chart"));
+    // 관측 조위 = 예측 조위(천문조 + 연평균해면) + 해일 (자료 README 1.2절). 위: 관측·예측, 아래: 해일 = 관측 − 예측
+    const tt = (k) => a + k * HOUR;
+    const obs = e.v.map((v, k) => [tt(k), v]);
+    const prd = (e.p || []).map((p, k) => [tt(k), p]);
+    const sur = e.v.map((v, k) => [tt(k), v == null || e.p == null || e.p[k] == null ? null : Math.round((v - e.p[k]) * 10) / 10]);
+    const axTxt = { color: "#525252" };
+    const fmt = (x) => (x == null ? "–" : x.toFixed(0) + " cm");
     popChart.setOption({
-      animation: false, grid: { left: 64, right: 78, top: 16, bottom: 40 },
-      tooltip: { trigger: "axis", formatter: (ps) => `${kst(ps[0].value[0])} KST<br>${ps[0].value[1] == null ? "–" : ps[0].value[1].toFixed(0) + " cm"}` },
-      xAxis: { type: "time", axisLabel: { color: "#52514e", formatter: (v) => kst(v).slice(5, 13) } },
-      yAxis: { type: "value", scale: true, name: "조위 cm (D.L.)", nameLocation: "middle", nameRotate: 90, nameGap: 46, nameTextStyle: { color: "#52514e" } },
-      series: [{ type: "line", data: e.v.map((v, k) => [a + k * HOUR, v]), showSymbol: false, connectNulls: false,
-                 lineStyle: { width: 1.5, color: "#5b8fd1" }, markLine: { symbol: "none", silent: true, data: thLines(s) },
-                 markPoint: { symbol: "circle", symbolSize: 12, itemStyle: { color: LV_COLOR[e.level] },
-                              data: [{ coord: [toMs(e.peak), e.esl], label: { show: false } }] } }],
+      animation: false,
+      legend: { top: 0, right: 78, selectedMode: false, itemWidth: 18, itemHeight: 2, icon: "rect", textStyle: { color: "#525252", fontSize: 11 },
+                data: ["관측 조위", "예측 조위 (천문조 + 연평균해면)", "해일 (관측 − 예측)"] },
+      grid: [{ left: 64, right: 78, top: 30, height: "52%" }, { left: 64, right: 78, top: "72%", bottom: 34 }],
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      tooltip: { trigger: "axis", formatter: (ps) => {
+        const k = Math.round((ps[0].value[0] - a) / HOUR);
+        return `${kst(tt(k))} KST<br>관측 ${fmt(obs[k] && obs[k][1])}<br>예측 ${fmt(prd[k] && prd[k][1])}<br>해일 ${fmt(sur[k] && sur[k][1])}`;
+      } },
+      xAxis: [
+        { type: "time", gridIndex: 0, axisLabel: { show: false } },
+        { type: "time", gridIndex: 1, axisLabel: Object.assign({ formatter: (v) => kst(v).slice(5, 13) }, axTxt) },
+      ],
+      yAxis: [
+        { type: "value", gridIndex: 0, scale: true, name: "조위 cm (D.L.)", nameLocation: "middle", nameRotate: 90, nameGap: 46, nameTextStyle: axTxt, axisLabel: axTxt },
+        { type: "value", gridIndex: 1, scale: true, name: "해일 cm", nameLocation: "middle", nameRotate: 90, nameGap: 46, nameTextStyle: axTxt, axisLabel: axTxt,
+          splitNumber: 3 },
+      ],
+      series: [
+        { id: "level", name: "관측 조위", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: obs, showSymbol: false, connectNulls: false,
+          lineStyle: { width: 1.5, color: "#4589ff" }, itemStyle: { color: "#4589ff" }, markLine: { symbol: "none", silent: true, data: thLines(s) },
+          markPoint: { symbol: "circle", symbolSize: 12, itemStyle: { color: LV_COLOR[e.level] },
+                       data: [{ coord: [toMs(e.peak), e.esl], label: { show: false } }] } },
+        { id: "pred", name: "예측 조위 (천문조 + 연평균해면)", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: prd, showSymbol: false, connectNulls: false,
+          lineStyle: { width: 1, color: "#8d8d8d", type: "dashed" }, itemStyle: { color: "#8d8d8d" }, z: 1 },
+        { id: "surge", name: "해일 (관측 − 예측)", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: sur, showSymbol: false, connectNulls: false,
+          lineStyle: { width: 1.2, color: "#8a3ffc" }, itemStyle: { color: "#8a3ffc" }, areaStyle: { color: "rgba(138,63,252,0.12)" },
+          markLine: { symbol: "none", silent: true, label: { show: false }, lineStyle: { color: "#a8a8a8", type: "solid", width: 1 }, data: [{ yAxis: 0 }] } },
+      ],
     }, true);
     popChart.resize();
+    spreadThLabels(popChart, s);
   }
   function closePopup() { pop.hidden = true; }
   document.getElementById("pop-close").addEventListener("click", closePopup);
